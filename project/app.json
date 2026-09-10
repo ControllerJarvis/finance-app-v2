@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Finance By Usman Afzal",
+    "slug": "finance-by-usman-afzal",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "scheme": "finance",
+    "icon": "./assets/icons/app-icon.png",
+    "splash": {
+      "image": "./assets/icons/app-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0B0F"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "icon": "./assets/icons/app-icon.png"
+    },
+    "android": {
+      "package": "com.usmanafzal.finance",
+      "icon": "./assets/icons/app-icon.png",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icons/app-icon.png",
+        "backgroundColor": "#0A0B0F"
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": ""
+      }
+    }
+  }
+}
