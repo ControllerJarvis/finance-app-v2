@@ -62,10 +62,10 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
       supabase.from('transfers').select('*').order('date', { ascending: false }),
     ]);
 
-    if (accRes.data) setAccounts(accRes.data as Account[]);
-    if (incRes.data) setIncomeLogs(incRes.data as IncomeLog[]);
-    if (expRes.data) setExpenseLogs(expRes.data as ExpenseLog[]);
-    if (trRes.data) setTransfers(trRes.data as Transfer[]);
+    setAccounts((accRes.data as Account[]) ?? []);
+    setIncomeLogs((incRes.data as IncomeLog[]) ?? []);
+    setExpenseLogs((expRes.data as ExpenseLog[]) ?? []);
+    setTransfers((trRes.data as Transfer[]) ?? []);
     setLoading(false);
   }, []);
 
@@ -74,9 +74,14 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   }, [fetchData]);
 
   useEffect(() => {
+    const safeIncome = incomeLogs ?? [];
+    const safeExpense = expenseLogs ?? [];
+    const safeTransfers = transfers ?? [];
+    const safeAccounts = accounts ?? [];
+
     const merged: RecentTransaction[] = [
-      ...incomeLogs.map((i) => {
-        const acc = accounts.find((a) => a.id === i.account_id);
+      ...safeIncome.map((i) => {
+        const acc = safeAccounts.find((a) => a.id === i.account_id);
         return {
           id: i.id,
           type: 'income' as const,
@@ -86,8 +91,8 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
           account_name: acc?.name,
         };
       }),
-      ...expenseLogs.map((e) => {
-        const acc = accounts.find((a) => a.id === e.account_id);
+      ...safeExpense.map((e) => {
+        const acc = safeAccounts.find((a) => a.id === e.account_id);
         return {
           id: e.id,
           type: 'expense' as const,
@@ -99,9 +104,9 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
           account_name: acc?.name,
         };
       }),
-      ...transfers.map((t) => {
-        const from = accounts.find((a) => a.id === t.from_account_id);
-        const to = accounts.find((a) => a.id === t.to_account_id);
+      ...safeTransfers.map((t) => {
+        const from = safeAccounts.find((a) => a.id === t.from_account_id);
+        const to = safeAccounts.find((a) => a.id === t.to_account_id);
         return {
           id: t.id,
           type: 'transfer' as const,
@@ -124,18 +129,18 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   }, [fetchData]);
 
   const now = new Date();
-  const monthIncome = incomeLogs.filter((i) => isSameMonth(i.date, now));
+  const monthIncome = (incomeLogs ?? []).filter((i) => isSameMonth(i.date, now));
   const totalMonthIncome = monthIncome.reduce((sum, i) => sum + Number(i.amount), 0);
 
-  const monthExpenses = expenseLogs.filter((e) => isSameMonth(e.date, now));
-  const totalSavings = incomeLogs.reduce((s, i) => s + Number(i.amount), 0) - expenseLogs.reduce((s, e) => s + Number(e.amount), 0);
+  const monthExpenses = (expenseLogs ?? []).filter((e) => isSameMonth(e.date, now));
+  const totalSavings = (incomeLogs ?? []).reduce((s, i) => s + Number(i.amount), 0) - (expenseLogs ?? []).reduce((s, e) => s + Number(e.amount), 0);
 
   const spentByCategory: Record<string, number> = {};
   monthExpenses.forEach((e) => {
     spentByCategory[e.main_category] = (spentByCategory[e.main_category] ?? 0) + Number(e.amount);
   });
 
-  const totalBalance = accounts.reduce((sum, a) => sum + Number(a.balance), 0);
+  const totalBalance = (accounts ?? []).reduce((sum, a) => sum + Number(a.balance), 0);
 
   return (
     <View style={styles.container}>
@@ -180,7 +185,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
         {/* Bank Accounts */}
         <Text style={styles.sectionTitle}>Bank Accounts</Text>
         <View style={styles.accountsGrid}>
-          {accounts.map((acc) => (
+          {(accounts ?? []).map((acc) => (
             <Card key={acc.id} style={styles.accountCard}>
               <Text style={styles.accountName} numberOfLines={1}>{acc.name}</Text>
               <Text style={styles.accountBalance}>{formatCurrency(Number(acc.balance), currency)}</Text>
@@ -192,7 +197,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
         <Text style={styles.sectionTitle}>Monthly Budget Guidelines</Text>
         {totalMonthIncome > 0 ? (
           <Card style={styles.budgetCard}>
-            {MAIN_CATEGORIES.map((cat: MainCategory) => {
+            {(MAIN_CATEGORIES ?? []).map((cat: MainCategory) => {
               const limit = totalMonthIncome * BUDGET_RULES[cat];
               const spent = spentByCategory[cat] ?? 0;
               const progress = limit > 0 ? spent / limit : 0;
@@ -234,13 +239,13 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
 
         {/* Recent Transactions */}
         <Text style={styles.sectionTitle}>Recent Transactions</Text>
-        {recent.length === 0 && !loading ? (
+        {(recent ?? []).length === 0 && !loading ? (
           <Card style={styles.emptyCard}>
             <Text style={styles.emptyText}>No transactions yet. Tap "Log Expense" to get started.</Text>
           </Card>
         ) : (
           <View style={styles.txList}>
-            {recent.map((tx) => (
+            {(recent ?? []).map((tx) => (
               <Pressable
                 key={`${tx.type}-${tx.id}`}
                 onPress={() => {
