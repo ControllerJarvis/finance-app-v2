@@ -14,7 +14,6 @@ import { useCurrency } from '../lib/CurrencyContext';
 import { CURRENCY_OPTIONS, CurrencyCode, supabase, Account } from '../lib/supabase';
 import { Colors } from '../lib/theme';
 
-
 type SettingsScreenProps = {
   navigation: any;
 };
@@ -28,68 +27,107 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
-        .from('accounts')
-        .select('*')
-        .order('sort_order', { ascending: true });
-      if (data) setAccounts(data as Account[]);
+      try {
+        const { data, error } = await supabase
+          .from('accounts')
+          .select('*')
+          .order('sort_order', { ascending: true });
+
+        if (error) {
+          console.error('Error fetching accounts:', error);
+          return;
+        }
+
+        if (Array.isArray(data)) {
+          setAccounts(data as Account[]);
+        }
+      } catch (err) {
+        console.error('Unexpected error fetching accounts:', err);
+      }
     })();
   }, []);
 
   const handleCurrencyChange = useCallback(async (c: CurrencyCode) => {
-    await setCurrency(c);
+    try {
+      await setCurrency(c);
+    } catch (err) {
+      console.error('Unexpected error changing currency:', err);
+      Alert.alert('Error', 'Failed to update currency preference.');
+    }
   }, [setCurrency]);
 
+  const safeAccounts = Array.isArray(accounts) ? accounts : [];
+
   const handleAddAccount = useCallback(async () => {
-    if (!newAccountName.trim()) return;
+    const trimmedName = newAccountName.trim();
+    if (!trimmedName) return;
+
     setAdding(true);
-    const maxOrder = accounts.reduce((max, a) => Math.max(max, a.sort_order), 0);
-    const { data, error } = await supabase
-      .from('accounts')
-      .insert({
-        name: newAccountName.trim(),
-        balance: 0,
-        is_preloaded: false,
-        sort_order: maxOrder + 1,
-      })
-      .select()
-      .single();
-    setAdding(false);
-    if (error) {
-      Alert.alert('Error', 'Failed to add account');
-      return;
+    try {
+      const maxOrder = safeAccounts.reduce((max, a) => Math.max(max, Number(a?.sort_order ?? 0)), 0);
+      const { data, error } = await supabase
+        .from('accounts')
+        .insert({
+          name: trimmedName,
+          balance: 0,
+          is_preloaded: false,
+          sort_order: maxOrder + 1,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error adding account:', error);
+        Alert.alert('Error', 'Failed to add account');
+        setAdding(false);
+        return;
+      }
+
+      if (data) {
+        setAccounts([...safeAccounts, data as Account]);
+        setNewAccountName('');
+      }
+    } catch (err) {
+      console.error('Unexpected error adding account:', err);
+      Alert.alert('Error', 'An unexpected error occurred while adding the account.');
+    } finally {
+      setAdding(false);
     }
-    if (data) {
-      setAccounts([...accounts, data as Account]);
-      setNewAccountName('');
-    }
-  }, [newAccountName, accounts]);
+  }, [newAccountName, safeAccounts]);
 
   const handleDeleteAccount = useCallback(async (acc: Account) => {
-    if (acc.is_preloaded) {
+    if (!acc || acc.is_preloaded) {
       Alert.alert('Cannot Delete', 'Pre-loaded accounts cannot be removed.');
       return;
     }
+
     Alert.alert(
       'Delete Account',
-      `Remove "${acc.name}"? This cannot be undone.`,
+      `Remove "${acc.name ?? 'Account'}"? This cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
+          pressable: true,
           onPress: async () => {
-            const { error } = await supabase.from('accounts').delete().eq('id', acc.id);
-            if (error) {
-              Alert.alert('Error', 'Failed to delete account');
-              return;
+            try {
+              const { error } = await supabase.from('accounts').delete().eq('id', acc.id);
+              if (error) {
+                console.error('Error deleting account:', error);
+                Alert.alert('Error', 'Failed to delete account');
+                return;
+              }
+              setAccounts(safeAccounts.filter((a) => a?.id !== acc.id));
+            } catch (err) {
+              console.error('Unexpected error deleting account:', err);
+              Alert.alert('Error', 'An unexpected error occurred while deleting the account.');
             }
-            setAccounts(accounts.filter((a) => a.id !== acc.id));
           },
         },
       ]
     );
-  }, [accounts]);
+  }, [safeAccounts]);
 
   return (
     <View style={styles.container}>
@@ -105,9 +143,9 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
         {/* Currency Section */}
         <Text style={styles.sectionTitle}>Preferred Currency</Text>
         <Card style={styles.sectionCard}>
-          {CURRENCY_OPTIONS.map((opt) => (
+          {(CURRENCY_OPTIONS ?? []).map((opt) => (
             <Pressable
-              key={opt.symbol}
+              key={opt?.symbol ?? opt?.code}
               style={({ pressed }) => [
                 styles.currencyRow,
                 pressed && { opacity: 0.7 },
@@ -115,13 +153,13 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
               onPress={() => handleCurrencyChange(opt.symbol)}
             >
               <View style={styles.currencyInfo}>
-                <Text style={styles.currencySymbol}>{opt.symbol}</Text>
+                <Text style={styles.currencySymbol}>{opt?.symbol ?? ''}</Text>
                 <View>
-                  <Text style={styles.currencyLabel}>{opt.label}</Text>
-                  <Text style={styles.currencyCode}>{opt.code}</Text>
+                  <Text style={styles.currencyLabel}>{opt?.label ?? ''}</Text>
+                  <Text style={styles.currencyCode}>{opt?.code ?? ''}</Text>
                 </View>
               </View>
-              {currency === opt.symbol && (
+              {currency === opt?.symbol && (
                 <View style={styles.selectedDot}>
                   <Text style={styles.checkmark}>✓</Text>
                 </View>
@@ -133,13 +171,13 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
         {/* Accounts Section */}
         <Text style={styles.sectionTitle}>Bank Accounts</Text>
         <Card style={styles.sectionCard}>
-          {accounts.map((acc) => (
-            <View key={acc.id} style={styles.accountRow}>
+          {safeAccounts.map((acc) => (
+            <View key={acc?.id ?? Math.random()} style={styles.accountRow}>
               <View style={styles.accountInfo}>
-                <Text style={styles.accountName}>{acc.name}</Text>
-                {acc.is_preloaded && <Text style={styles.preloadedBadge}>Pre-loaded</Text>}
+                <Text style={styles.accountName}>{acc?.name ?? 'Unnamed Account'}</Text>
+                {acc?.is_preloaded && <Text style={styles.preloadedBadge}>Pre-loaded</Text>}
               </View>
-              {!acc.is_preloaded && (
+              {!acc?.is_preloaded && (
                 <Pressable onPress={() => handleDeleteAccount(acc)} hitSlop={12}>
                   <Text style={styles.deleteBtn}>Delete</Text>
                 </Pressable>
