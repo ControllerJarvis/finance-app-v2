@@ -44,14 +44,18 @@ export function HistoryScreen({ navigation }: HistoryScreenProps) {
   const [selectedPeriod, setSelectedPeriod] = useState(0);
 
   const fetchData = useCallback(async () => {
-    const [incRes, expRes, accRes] = await Promise.all([
-      supabase.from('income_logs').select('*').order('date', { ascending: false }),
-      supabase.from('expense_logs').select('*').order('date', { ascending: false }),
-      supabase.from('accounts').select('*').order('sort_order', { ascending: true }),
-    ]);
-    if (incRes.data) setIncomeLogs(incRes.data as IncomeLog[]);
-    if (expRes.data) setExpenseLogs(expRes.data as ExpenseLog[]);
-    if (accRes.data) setAccounts(accRes.data as Account[]);
+    try {
+      const [incRes, expRes, accRes] = await Promise.all([
+        supabase.from('income_logs').select('*').order('date', { ascending: false }),
+        supabase.from('expense_logs').select('*').order('date', { ascending: false }),
+        supabase.from('accounts').select('*').order('sort_order', { ascending: true }),
+      ]);
+      if (incRes.data) setIncomeLogs(incRes.data as IncomeLog[]);
+      if (expRes.data) setExpenseLogs(expRes.data as ExpenseLog[]);
+      if (accRes.data) setAccounts(accRes.data as Account[]);
+    } catch (err) {
+      console.error('Error fetching history data:', err);
+    }
   }, []);
 
   useEffect(() => {
@@ -64,7 +68,7 @@ export function HistoryScreen({ navigation }: HistoryScreenProps) {
     setRefreshing(false);
   }, [fetchData]);
 
-  // Build periods
+  // Build periods safely
   const periods: { label: string; match: (d: string) => boolean }[] = [];
   const now = new Date();
 
@@ -73,7 +77,7 @@ export function HistoryScreen({ navigation }: HistoryScreenProps) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       periods.push({
         label: `${getMonthName(d.getMonth())} ${d.getFullYear()}`,
-        match: (dateStr: string) => isSameMonth(dateStr, d),
+        match: (dateStr: string) => dateStr ? isSameMonth(dateStr, d) : false,
       });
     }
   } else {
@@ -81,38 +85,42 @@ export function HistoryScreen({ navigation }: HistoryScreenProps) {
       const year = now.getFullYear() - i;
       periods.push({
         label: `${year}`,
-        match: (dateStr: string) => isSameYear(dateStr, new Date(year, 0, 1)),
+        match: (dateStr: string) => dateStr ? isSameYear(dateStr, new Date(year, 0, 1)) : false,
       });
     }
   }
 
-  const currentPeriod = periods[selectedPeriod];
-  const periodIncome = incomeLogs.filter((i) => currentPeriod?.match(i.date));
-  const periodExpenses = expenseLogs.filter((e) => currentPeriod?.match(e.date));
-  const totalIncome = periodIncome.reduce((s, i) => s + Number(i.amount), 0);
-  const totalExpenses = periodExpenses.reduce((s, e) => s + Number(e.amount), 0);
+  const safeIncomeLogs = Array.isArray(incomeLogs) ? incomeLogs : [];
+  const safeExpenseLogs = Array.isArray(expenseLogs) ? expenseLogs : [];
+
+  const currentPeriod = periods[selectedPeriod] ?? periods[0];
+  const periodIncome = safeIncomeLogs.filter((i) => i?.date && currentPeriod?.match(i.date));
+  const periodExpenses = safeExpenseLogs.filter((e) => e?.date && currentPeriod?.match(e.date));
+  
+  const totalIncome = periodIncome.reduce((s, i) => s + Number(i?.amount ?? 0), 0);
+  const totalExpenses = periodExpenses.reduce((s, e) => s + Number(e?.amount ?? 0), 0);
   const netSavings = totalIncome - totalExpenses;
 
-  // Build pie chart data
+  // Build pie chart data safely
   const pieSlices: PieSlice[] = [];
   if (chartMode === 'main') {
-    MAIN_CATEGORIES.forEach((cat: MainCategory) => {
+    (MAIN_CATEGORIES ?? []).forEach((cat: MainCategory) => {
       const total = periodExpenses
-        .filter((e) => e.main_category === cat)
-        .reduce((s, e) => s + Number(e.amount), 0);
+        .filter((e) => e?.main_category === cat)
+        .reduce((s, e) => s + Number(e?.amount ?? 0), 0);
       if (total > 0) {
         pieSlices.push({
-          label: MAIN_CATEGORY_LABELS[cat],
+          label: MAIN_CATEGORY_LABELS[cat] ?? cat,
           value: total,
-          color: CategoryColors[cat],
+          color: CategoryColors[cat] ?? Colors.primary,
         });
       }
     });
   } else {
-    SUBCATEGORIES.forEach((sub: Subcategory, idx: number) => {
+    (SUBCATEGORIES ?? []).forEach((sub: Subcategory, idx: number) => {
       const total = periodExpenses
-        .filter((e) => e.subcategory === sub)
-        .reduce((s, e) => s + Number(e.amount), 0);
+        .filter((e) => e?.subcategory === sub)
+        .reduce((s, e) => s + Number(e?.amount ?? 0), 0);
       if (total > 0) {
         pieSlices.push({
           label: sub,
@@ -243,14 +251,14 @@ export function HistoryScreen({ navigation }: HistoryScreenProps) {
           <>
             <Text style={styles.sectionTitle}>Category Breakdown</Text>
             <Card style={styles.breakdownCard}>
-              {MAIN_CATEGORIES.map((cat: MainCategory) => {
+              {(MAIN_CATEGORIES ?? []).map((cat: MainCategory) => {
                 const total = periodExpenses
-                  .filter((e) => e.main_category === cat)
-                  .reduce((s, e) => s + Number(e.amount), 0);
+                  .filter((e) => e?.main_category === cat)
+                  .reduce((s, e) => s + Number(e?.amount ?? 0), 0);
                 return (
                   <View key={cat} style={styles.breakdownRow}>
-                    <Text style={styles.breakdownIcon}>{MainCategoryIcons[cat]}</Text>
-                    <Text style={styles.breakdownName}>{MAIN_CATEGORY_LABELS[cat]}</Text>
+                    <Text style={styles.breakdownIcon}>{MainCategoryIcons[cat] ?? '📁'}</Text>
+                    <Text style={styles.breakdownName}>{MAIN_CATEGORY_LABELS[cat] ?? cat}</Text>
                     <Text style={styles.breakdownAmount}>{formatCurrency(total, currency)}</Text>
                   </View>
                 );
@@ -264,14 +272,14 @@ export function HistoryScreen({ navigation }: HistoryScreenProps) {
           <>
             <Text style={styles.sectionTitle}>Subcategory Breakdown</Text>
             <Card style={styles.breakdownCard}>
-              {SUBCATEGORIES.map((sub: Subcategory) => {
+              {(SUBCATEGORIES ?? []).map((sub: Subcategory) => {
                 const total = periodExpenses
-                  .filter((e) => e.subcategory === sub)
-                  .reduce((s, e) => s + Number(e.amount), 0);
+                  .filter((e) => e?.subcategory === sub)
+                  .reduce((s, e) => s + Number(e?.amount ?? 0), 0);
                 if (total === 0) return null;
                 return (
                   <View key={sub} style={styles.breakdownRow}>
-                    <Text style={styles.breakdownIcon}>{SubcategoryIcons[sub]}</Text>
+                    <Text style={styles.breakdownIcon}>{(SubcategoryIcons as any)[sub] ?? '🏷️'}</Text>
                     <Text style={styles.breakdownName}>{sub}</Text>
                     <Text style={styles.breakdownAmount}>{formatCurrency(total, currency)}</Text>
                   </View>
