@@ -14,16 +14,18 @@ import { BottomSheet } from '../components/BottomSheet';
 import { TextField, SelectField, OptionList, PrimaryButton } from '../components/FormFields';
 import { useCurrency } from '../lib/CurrencyContext';
 import { formatCurrency } from '../lib/format';
-import {
-  supabase,
-  Account,
+import { supabase, Account } from '../lib/supabase';
+import { 
+  Colors, 
+  SubcategoryIcons, 
+  MainCategoryIcons, 
+  CategoryColors,
   SUBCATEGORIES,
   Subcategory,
   MAIN_CATEGORIES,
   MainCategory,
   MAIN_CATEGORY_LABELS,
-} from '../lib/supabase';
-import { Colors, SubcategoryIcons, MainCategoryIcons, CategoryColors } from '../lib/theme';
+} from '../lib/theme';
 
 type LogExpenseScreenProps = {
   navigation: any;
@@ -227,7 +229,7 @@ export function LogExpenseScreen({ navigation, route }: LogExpenseScreenProps) {
             />
             <SelectField
               label="Main Budget Category"
-              value={mainCategory ? (MAIN_CATEGORY_LABELS[mainCategory as MainCategory] ?? mainCategory) : ''}
+              value={mainCategory ? (MAIN_CATEGORY_LABELS?.[mainCategory as MainCategory] ?? mainCategory) : ''}
               onPress={() => setShowMainCats(true)}
               placeholder="Map to main category"
             />
@@ -236,15 +238,15 @@ export function LogExpenseScreen({ navigation, route }: LogExpenseScreenProps) {
               <View style={styles.categoryPreview}>
                 {subcategory && (
                   <View style={styles.previewChip}>
-                    <Text style={styles.previewIcon}>{(SubcategoryIcons as any)[subcategory as Subcategory] ?? '🏷️'}</Text>
+                    <Text style={styles.previewIcon}>{(SubcategoryIcons as any)?.[subcategory as Subcategory] ?? '🏷️'}</Text>
                     <Text style={styles.previewText}>{subcategory}</Text>
                   </View>
                 )}
                 {subcategory && mainCategory && <Text style={styles.previewArrow}>→</Text>}
                 {mainCategory && (
-                  <View style={[styles.previewChip, { backgroundColor: (CategoryColors[mainCategory as MainCategory] ?? Colors.primary) + '22' }]}>
-                    <Text style={styles.previewIcon}>{MainCategoryIcons[mainCategory as MainCategory] ?? '📁'}</Text>
-                    <Text style={styles.previewText}>{MAIN_CATEGORY_LABELS[mainCategory as MainCategory] ?? mainCategory}</Text>
+                  <View style={[styles.previewChip, { backgroundColor: ((CategoryColors?.[mainCategory as MainCategory] ?? Colors.primary)) + '22' }]}>
+                    <Text style={styles.previewIcon}>{MainCategoryIcons?.[mainCategory as MainCategory] ?? '📁'}</Text>
+                    <Text style={styles.previewText}>{MAIN_CATEGORY_LABELS?.[mainCategory as MainCategory] ?? mainCategory}</Text>
                   </View>
                 )}
               </View>
@@ -281,7 +283,7 @@ export function LogExpenseScreen({ navigation, route }: LogExpenseScreenProps) {
       <BottomSheet visible={showSubcats} onClose={() => setShowSubcats(false)} title="Select Subcategory">
         <ScrollView>
           <OptionList
-            options={(SUBCATEGORIES ?? []).map((s) => ({ label: s, value: s, icon: (SubcategoryIcons as any)[s] ?? '🏷️' }))}
+            options={(SUBCATEGORIES ?? []).map((s) => ({ label: s, value: s, icon: (SubcategoryIcons as any)?.[s] ?? '🏷️' }))}
             onSelect={(v) => { setSubcategory(v); setShowSubcats(false); }}
             selected={subcategory}
           />
@@ -292,10 +294,10 @@ export function LogExpenseScreen({ navigation, route }: LogExpenseScreenProps) {
         <ScrollView>
           <OptionList
             options={(MAIN_CATEGORIES ?? []).map((c) => ({
-              label: MAIN_CATEGORY_LABELS[c] ?? c,
+              label: MAIN_CATEGORY_LABELS?.[c] ?? c,
               value: c,
-              icon: MainCategoryIcons[c] ?? '📁',
-              color: CategoryColors[c] ?? Colors.primary,
+              icon: MainCategoryIcons?.[c] ?? '📁',
+              color: CategoryColors?.[c] ?? Colors.primary,
             }))}
             onSelect={(v) => { setMainCategory(v); setShowMainCats(false); }}
             selected={mainCategory}
