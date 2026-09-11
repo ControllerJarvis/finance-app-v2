@@ -55,18 +55,23 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
-    const [accRes, incRes, expRes, trRes] = await Promise.all([
-      supabase.from('accounts').select('*').order('sort_order', { ascending: true }),
-      supabase.from('income_logs').select('*').order('date', { ascending: false }),
-      supabase.from('expense_logs').select('*').order('date', { ascending: false }),
-      supabase.from('transfers').select('*').order('date', { ascending: false }),
-    ]);
+    try {
+      const [accRes, incRes, expRes, trRes] = await Promise.all([
+        supabase.from('accounts').select('*').order('sort_order', { ascending: true }),
+        supabase.from('income_logs').select('*').order('date', { ascending: false }),
+        supabase.from('expense_logs').select('*').order('date', { ascending: false }),
+        supabase.from('transfers').select('*').order('date', { ascending: false }),
+      ]);
 
-    setAccounts((accRes.data as Account[]) ?? []);
-    setIncomeLogs((incRes.data as IncomeLog[]) ?? []);
-    setExpenseLogs((expRes.data as ExpenseLog[]) ?? []);
-    setTransfers((trRes.data as Transfer[]) ?? []);
-    setLoading(false);
+      if (accRes.data) setAccounts(accRes.data as Account[]);
+      if (incRes.data) setIncomeLogs(incRes.data as IncomeLog[]);
+      if (expRes.data) setExpenseLogs(expRes.data as ExpenseLog[]);
+      if (trRes.data) setTransfers(trRes.data as Transfer[]);
+    } catch (err) {
+      console.error('Error fetching data:', err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -74,52 +79,63 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   }, [fetchData]);
 
   useEffect(() => {
-    const safeIncome = incomeLogs ?? [];
-    const safeExpense = expenseLogs ?? [];
-    const safeTransfers = transfers ?? [];
-    const safeAccounts = accounts ?? [];
+    try {
+      const safeIncome = Array.isArray(incomeLogs) ? incomeLogs : [];
+      const safeExpense = Array.isArray(expenseLogs) ? expenseLogs : [];
+      const safeTransfers = Array.isArray(transfers) ? transfers : [];
+      const safeAccounts = Array.isArray(accounts) ? accounts : [];
 
-    const merged: RecentTransaction[] = [
-      ...safeIncome.map((i) => {
-        const acc = safeAccounts.find((a) => a.id === i.account_id);
+      const mappedIncome: RecentTransaction[] = safeIncome.map((i) => {
+        const acc = safeAccounts.find((a) => a.id === i?.account_id);
         return {
-          id: i.id,
+          id: i?.id ?? Math.random().toString(),
           type: 'income' as const,
-          amount: i.amount,
-          date: i.date,
-          comment: i.comment,
+          amount: Number(i?.amount ?? 0),
+          date: i?.date ?? new Date().toISOString(),
+          comment: i?.comment ?? null,
           account_name: acc?.name,
         };
-      }),
-      ...safeExpense.map((e) => {
-        const acc = safeAccounts.find((a) => a.id === e.account_id);
+      });
+
+      const mappedExpense: RecentTransaction[] = safeExpense.map((e) => {
+        const acc = safeAccounts.find((a) => a.id === e?.account_id);
         return {
-          id: e.id,
+          id: e?.id ?? Math.random().toString(),
           type: 'expense' as const,
-          amount: e.amount,
-          date: e.date,
-          comment: e.comment,
-          subcategory: e.subcategory,
-          main_category: e.main_category,
+          amount: Number(e?.amount ?? 0),
+          date: e?.date ?? new Date().toISOString(),
+          comment: e?.comment ?? null,
+          subcategory: e?.subcategory,
+          main_category: e?.main_category,
           account_name: acc?.name,
         };
-      }),
-      ...safeTransfers.map((t) => {
-        const from = safeAccounts.find((a) => a.id === t.from_account_id);
-        const to = safeAccounts.find((a) => a.id === t.to_account_id);
+      });
+
+      const mappedTransfers: RecentTransaction[] = safeTransfers.map((t) => {
+        const from = safeAccounts.find((a) => a.id === t?.from_account_id);
+        const to = safeAccounts.find((a) => a.id === t?.to_account_id);
         return {
-          id: t.id,
+          id: t?.id ?? Math.random().toString(),
           type: 'transfer' as const,
-          amount: t.amount,
-          date: t.date,
-          comment: t.comment,
+          amount: Number(t?.amount ?? 0),
+          date: t?.date ?? new Date().toISOString(),
+          comment: t?.comment ?? null,
           from_account: from?.name,
           to_account: to?.name,
         };
-      }),
-    ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      });
 
-    setRecent(merged.slice(0, 15));
+      const merged = [...mappedIncome, ...mappedExpense, ...mappedTransfers].sort((a, b) => {
+        const timeB = new Date(b.date).getTime() || 0;
+        const timeA = new Date(a.date).getTime() || 0;
+        return timeB - timeA;
+      });
+
+      setRecent(merged.slice(0, 15));
+    } catch (err) {
+      console.error('Error merging recent transactions:', err);
+      setRecent([]);
+    }
   }, [incomeLogs, expenseLogs, transfers, accounts]);
 
   const onRefresh = useCallback(async () => {
@@ -129,18 +145,26 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   }, [fetchData]);
 
   const now = new Date();
-  const monthIncome = (incomeLogs ?? []).filter((i) => isSameMonth(i.date, now));
-  const totalMonthIncome = monthIncome.reduce((sum, i) => sum + Number(i.amount), 0);
+  const safeIncomeLogs = Array.isArray(incomeLogs) ? incomeLogs : [];
+  const safeExpenseLogs = Array.isArray(expenseLogs) ? expenseLogs : [];
+  const safeAccounts = Array.isArray(accounts) ? accounts : [];
 
-  const monthExpenses = (expenseLogs ?? []).filter((e) => isSameMonth(e.date, now));
-  const totalSavings = (incomeLogs ?? []).reduce((s, i) => s + Number(i.amount), 0) - (expenseLogs ?? []).reduce((s, e) => s + Number(e.amount), 0);
+  const monthIncome = safeIncomeLogs.filter((i) => i?.date && isSameMonth(i.date, now));
+  const totalMonthIncome = monthIncome.reduce((sum, i) => sum + Number(i?.amount ?? 0), 0);
+
+  const monthExpenses = safeExpenseLogs.filter((e) => e?.date && isSameMonth(e.date, now));
+  const totalSavings = 
+    safeIncomeLogs.reduce((s, i) => s + Number(i?.amount ?? 0), 0) - 
+    safeExpenseLogs.reduce((s, e) => s + Number(e?.amount ?? 0), 0);
 
   const spentByCategory: Record<string, number> = {};
   monthExpenses.forEach((e) => {
-    spentByCategory[e.main_category] = (spentByCategory[e.main_category] ?? 0) + Number(e.amount);
+    if (e?.main_category) {
+      spentByCategory[e.main_category] = (spentByCategory[e.main_category] ?? 0) + Number(e?.amount ?? 0);
+    }
   });
 
-  const totalBalance = (accounts ?? []).reduce((sum, a) => sum + Number(a.balance), 0);
+  const totalBalance = safeAccounts.reduce((sum, a) => sum + Number(a?.balance ?? 0), 0);
 
   return (
     <View style={styles.container}>
@@ -185,7 +209,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
         {/* Bank Accounts */}
         <Text style={styles.sectionTitle}>Bank Accounts</Text>
         <View style={styles.accountsGrid}>
-          {(accounts ?? []).map((acc) => (
+          {safeAccounts.map((acc) => (
             <Card key={acc.id} style={styles.accountCard}>
               <Text style={styles.accountName} numberOfLines={1}>{acc.name}</Text>
               <Text style={styles.accountBalance}>{formatCurrency(Number(acc.balance), currency)}</Text>
@@ -239,13 +263,13 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
 
         {/* Recent Transactions */}
         <Text style={styles.sectionTitle}>Recent Transactions</Text>
-        {(recent ?? []).length === 0 && !loading ? (
+        {recent.length === 0 && !loading ? (
           <Card style={styles.emptyCard}>
             <Text style={styles.emptyText}>No transactions yet. Tap "Log Expense" to get started.</Text>
           </Card>
         ) : (
           <View style={styles.txList}>
-            {(recent ?? []).map((tx) => (
+            {recent.map((tx) => (
               <Pressable
                 key={`${tx.type}-${tx.id}`}
                 onPress={() => {
@@ -259,7 +283,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
                 }}
                 style={({ pressed }) => pressed && { opacity: 0.7 }}
               >
-                <Card key={`${tx.type}-${tx.id}`} style={styles.txCard}>
+                <Card style={styles.txCard}>
                   <View style={styles.txRow}>
                   <View style={styles.txIconWrap}>
                     <Text style={styles.txIcon}>
