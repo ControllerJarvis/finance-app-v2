@@ -41,39 +41,62 @@ export function TransferScreen({ navigation, route }: TransferScreenProps) {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
-        .from('accounts')
-        .select('*')
-        .order('sort_order', { ascending: true });
-      if (data) setAccounts(data as Account[]);
+      try {
+        const { data, error: fetchError } = await supabase
+          .from('accounts')
+          .select('*')
+          .order('sort_order', { ascending: true });
+
+        if (fetchError) {
+          console.error('Error fetching accounts:', fetchError);
+          return;
+        }
+
+        if (Array.isArray(data)) {
+          setAccounts(data as Account[]);
+        }
+      } catch (err) {
+        console.error('Unexpected error fetching accounts:', err);
+      }
     })();
   }, []);
 
   useEffect(() => {
-    if (!isEditing) return;
+    if (!isEditing || !editId) return;
     (async () => {
-      const { data } = await supabase
-        .from('transfers')
-        .select('*')
-        .eq('id', editId)
-        .maybeSingle();
-      if (data) {
-        setAmount(String(data.amount));
-        setFromAccount(data.from_account_id ?? '');
-        setToAccount(data.to_account_id ?? '');
-        setDate(data.date);
-        setComment(data.comment ?? '');
+      try {
+        const { data, error: fetchError } = await supabase
+          .from('transfers')
+          .select('*')
+          .eq('id', editId)
+          .maybeSingle();
+
+        if (fetchError) {
+          console.error('Error fetching transfer log for edit:', fetchError);
+          return;
+        }
+
+        if (data) {
+          setAmount(data.amount !== null && data.amount !== undefined ? String(data.amount) : '');
+          setFromAccount(data.from_account_id ?? '');
+          setToAccount(data.to_account_id ?? '');
+          setDate(data.date ?? new Date().toISOString().split('T')[0]);
+          setComment(data.comment ?? '');
+        }
+      } catch (err) {
+        console.error('Unexpected error fetching transfer log:', err);
       }
     })();
   }, [editId, isEditing]);
 
-  const fromAcc = accounts.find((a) => a.id === fromAccount);
-  const toAcc = accounts.find((a) => a.id === toAccount);
+  const safeAccounts = Array.isArray(accounts) ? accounts : [];
+  const fromAcc = safeAccounts.find((a) => a?.id === fromAccount);
+  const toAcc = safeAccounts.find((a) => a?.id === toAccount);
 
   const handleSave = useCallback(async () => {
     setError(null);
     const amt = parseFloat(amount);
-    if (!amt || amt <= 0) {
+    if (isNaN(amt) || amt <= 0) {
       setError('Please enter a valid amount');
       return;
     }
@@ -89,38 +112,48 @@ export function TransferScreen({ navigation, route }: TransferScreenProps) {
       setError('Source and destination must be different');
       return;
     }
+
     setSaving(true);
-    if (isEditing) {
-      const { error: updateError } = await supabase
-        .from('transfers')
-        .update({
+    try {
+      if (isEditing && editId) {
+        const { error: updateError } = await supabase
+          .from('transfers')
+          .update({
+            from_account_id: fromAccount,
+            to_account_id: toAccount,
+            amount: amt,
+            date,
+            comment: comment.trim() || null,
+          })
+          .eq('id', editId);
+
+        if (updateError) {
+          setError('Failed to update transfer. Please try again.');
+          setSaving(false);
+          return;
+        }
+      } else {
+        const { error: insertError } = await supabase.from('transfers').insert({
           from_account_id: fromAccount,
           to_account_id: toAccount,
           amount: amt,
           date,
           comment: comment.trim() || null,
-        })
-        .eq('id', editId);
-      setSaving(false);
-      if (updateError) {
-        setError('Failed to update transfer. Please try again.');
-        return;
+        });
+
+        if (insertError) {
+          setError('Failed to save transfer. Please try again.');
+          setSaving(false);
+          return;
+        }
       }
-    } else {
-      const { error: insertError } = await supabase.from('transfers').insert({
-        from_account_id: fromAccount,
-        to_account_id: toAccount,
-        amount: amt,
-        date,
-        comment: comment.trim() || null,
-      });
       setSaving(false);
-      if (insertError) {
-        setError('Failed to save transfer. Please try again.');
-        return;
-      }
+      navigation.goBack();
+    } catch (err) {
+      console.error('Unexpected error saving transfer:', err);
+      setError('An unexpected error occurred. Please try again.');
+      setSaving(false);
     }
-    navigation.goBack();
   }, [amount, fromAccount, toAccount, date, comment, navigation, isEditing, editId]);
 
   return (
@@ -150,7 +183,7 @@ export function TransferScreen({ navigation, route }: TransferScreenProps) {
             />
             {fromAcc && (
               <Text style={styles.balanceHint}>
-                Balance: {formatCurrency(Number(fromAcc.balance), currency)}
+                Balance: {formatCurrency(Number(fromAcc.balance ?? 0), currency)}
               </Text>
             )}
             <SelectField
@@ -161,7 +194,7 @@ export function TransferScreen({ navigation, route }: TransferScreenProps) {
             />
             {toAcc && (
               <Text style={styles.balanceHint}>
-                Balance: {formatCurrency(Number(toAcc.balance), currency)}
+                Balance: {formatCurrency(Number(toAcc.balance ?? 0), currency)}
               </Text>
             )}
             <TextField
@@ -198,7 +231,7 @@ export function TransferScreen({ navigation, route }: TransferScreenProps) {
       <BottomSheet visible={showFrom} onClose={() => setShowFrom(false)} title="From Account">
         <ScrollView>
           <OptionList
-            options={accounts.map((a) => ({ label: a.name, value: a.id }))}
+            options={safeAccounts.map((a) => ({ label: a?.name ?? 'Unnamed Account', value: a?.id ?? '' }))}
             onSelect={(v) => { setFromAccount(v); setShowFrom(false); }}
             selected={fromAccount}
           />
@@ -208,7 +241,7 @@ export function TransferScreen({ navigation, route }: TransferScreenProps) {
       <BottomSheet visible={showTo} onClose={() => setShowTo(false)} title="To Account">
         <ScrollView>
           <OptionList
-            options={accounts.map((a) => ({ label: a.name, value: a.id }))}
+            options={safeAccounts.map((a) => ({ label: a?.name ?? 'Unnamed Account', value: a?.id ?? '' }))}
             onSelect={(v) => { setToAccount(v); setShowTo(false); }}
             selected={toAccount}
           />
