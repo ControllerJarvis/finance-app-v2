@@ -39,42 +39,66 @@ export function LogIncomeScreen({ navigation, route }: LogIncomeScreenProps) {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
-        .from('accounts')
-        .select('*')
-        .order('sort_order', { ascending: true });
-      if (data) {
-        setAccounts(data as Account[]);
-        if (data.length > 0 && !selectedAccount) {
-          setSelectedAccount((data[0] as Account).id);
+      try {
+        const { data, error: fetchError } = await supabase
+          .from('accounts')
+          .select('*')
+          .order('sort_order', { ascending: true });
+
+        if (fetchError) {
+          console.error('Error fetching accounts:', fetchError);
+          return;
         }
+
+        if (Array.isArray(data)) {
+          setAccounts(data as Account[]);
+          if (data.length > 0 && !selectedAccount) {
+            const firstAcc = data[0] as Account;
+            if (firstAcc?.id) {
+              setSelectedAccount(firstAcc.id);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Unexpected error fetching accounts:', err);
       }
     })();
-  }, []);
+  }, [selectedAccount]);
 
   useEffect(() => {
-    if (!isEditing) return;
+    if (!isEditing || !editId) return;
     (async () => {
-      const { data } = await supabase
-        .from('income_logs')
-        .select('*')
-        .eq('id', editId)
-        .maybeSingle();
-      if (data) {
-        setAmount(String(data.amount));
-        setSelectedAccount(data.account_id ?? '');
-        setDate(data.date);
-        setComment(data.comment ?? '');
+      try {
+        const { data, error: fetchError } = await supabase
+          .from('income_logs')
+          .select('*')
+          .eq('id', editId)
+          .maybeSingle();
+
+        if (fetchError) {
+          console.error('Error fetching income log for edit:', fetchError);
+          return;
+        }
+
+        if (data) {
+          setAmount(data.amount !== null && data.amount !== undefined ? String(data.amount) : '');
+          setSelectedAccount(data.account_id ?? '');
+          setDate(data.date ?? new Date().toISOString().split('T')[0]);
+          setComment(data.comment ?? '');
+        }
+      } catch (err) {
+        console.error('Unexpected error fetching income log:', err);
       }
     })();
   }, [editId, isEditing]);
 
-  const selectedAcc = accounts.find((a) => a.id === selectedAccount);
+  const safeAccounts = Array.isArray(accounts) ? accounts : [];
+  const selectedAcc = safeAccounts.find((a) => a?.id === selectedAccount);
 
   const handleSave = useCallback(async () => {
     setError(null);
     const amt = parseFloat(amount);
-    if (!amt || amt <= 0) {
+    if (isNaN(amt) || amt <= 0) {
       setError('Please enter a valid amount');
       return;
     }
@@ -82,36 +106,46 @@ export function LogIncomeScreen({ navigation, route }: LogIncomeScreenProps) {
       setError('Please select a bank account');
       return;
     }
+
     setSaving(true);
-    if (isEditing) {
-      const { error: updateError } = await supabase
-        .from('income_logs')
-        .update({
+    try {
+      if (isEditing && editId) {
+        const { error: updateError } = await supabase
+          .from('income_logs')
+          .update({
+            account_id: selectedAccount,
+            amount: amt,
+            date,
+            comment: comment.trim() || null,
+          })
+          .eq('id', editId);
+
+        if (updateError) {
+          setError('Failed to update income. Please try again.');
+          setSaving(false);
+          return;
+        }
+      } else {
+        const { error: insertError } = await supabase.from('income_logs').insert({
           account_id: selectedAccount,
           amount: amt,
           date,
           comment: comment.trim() || null,
-        })
-        .eq('id', editId);
-      setSaving(false);
-      if (updateError) {
-        setError('Failed to update income. Please try again.');
-        return;
+        });
+
+        if (insertError) {
+          setError('Failed to save income. Please try again.');
+          setSaving(false);
+          return;
+        }
       }
-    } else {
-      const { error: insertError } = await supabase.from('income_logs').insert({
-        account_id: selectedAccount,
-        amount: amt,
-        date,
-        comment: comment.trim() || null,
-      });
       setSaving(false);
-      if (insertError) {
-        setError('Failed to save income. Please try again.');
-        return;
-      }
+      navigation.goBack();
+    } catch (err) {
+      console.error('Unexpected error saving income:', err);
+      setError('An unexpected error occurred. Please try again.');
+      setSaving(false);
     }
-    navigation.goBack();
   }, [amount, selectedAccount, date, comment, navigation, isEditing, editId]);
 
   return (
@@ -148,7 +182,7 @@ export function LogIncomeScreen({ navigation, route }: LogIncomeScreenProps) {
             />
             {selectedAcc && (
               <Text style={styles.balanceHint}>
-                Current balance: {formatCurrency(Number(selectedAcc.balance), currency)}
+                Current balance: {formatCurrency(Number(selectedAcc.balance ?? 0), currency)}
               </Text>
             )}
             <TextField
@@ -197,7 +231,7 @@ export function LogIncomeScreen({ navigation, route }: LogIncomeScreenProps) {
       >
         <ScrollView>
           <OptionList
-            options={accounts.map((a) => ({ label: a.name, value: a.id }))}
+            options={safeAccounts.map((a) => ({ label: a?.name ?? 'Unnamed Account', value: a?.id ?? '' }))}
             onSelect={(v) => {
               setSelectedAccount(v);
               setShowAccounts(false);
