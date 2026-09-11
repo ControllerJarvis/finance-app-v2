@@ -51,44 +51,68 @@ export function LogExpenseScreen({ navigation, route }: LogExpenseScreenProps) {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
-        .from('accounts')
-        .select('*')
-        .order('sort_order', { ascending: true });
-      if (data) {
-        setAccounts(data as Account[]);
-        if (data.length > 0 && !selectedAccount) {
-          setSelectedAccount((data[0] as Account).id);
+      try {
+        const { data, error: fetchError } = await supabase
+          .from('accounts')
+          .select('*')
+          .order('sort_order', { ascending: true });
+        
+        if (fetchError) {
+          console.error('Error fetching accounts:', fetchError);
+          return;
         }
+
+        if (Array.isArray(data)) {
+          setAccounts(data as Account[]);
+          if (data.length > 0 && !selectedAccount) {
+            const firstAcc = data[0] as Account;
+            if (firstAcc?.id) {
+              setSelectedAccount(firstAcc.id);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Unexpected error fetching accounts:', err);
       }
     })();
-  }, []);
+  }, [selectedAccount]);
 
   useEffect(() => {
-    if (!isEditing) return;
+    if (!isEditing || !editId) return;
     (async () => {
-      const { data } = await supabase
-        .from('expense_logs')
-        .select('*')
-        .eq('id', editId)
-        .maybeSingle();
-      if (data) {
-        setAmount(String(data.amount));
-        setSelectedAccount(data.account_id ?? '');
-        setDate(data.date);
-        setSubcategory(data.subcategory ?? '');
-        setMainCategory(data.main_category ?? '');
-        setComment(data.comment ?? '');
+      try {
+        const { data, error: fetchError } = await supabase
+          .from('expense_logs')
+          .select('*')
+          .eq('id', editId)
+          .maybeSingle();
+
+        if (fetchError) {
+          console.error('Error fetching expense log for edit:', fetchError);
+          return;
+        }
+
+        if (data) {
+          setAmount(data.amount !== null && data.amount !== undefined ? String(data.amount) : '');
+          setSelectedAccount(data.account_id ?? '');
+          setDate(data.date ?? new Date().toISOString().split('T')[0]);
+          setSubcategory(data.subcategory ?? '');
+          setMainCategory(data.main_category ?? '');
+          setComment(data.comment ?? '');
+        }
+      } catch (err) {
+        console.error('Unexpected error fetching expense log:', err);
       }
     })();
   }, [editId, isEditing]);
 
-  const selectedAcc = accounts.find((a) => a.id === selectedAccount);
+  const safeAccounts = Array.isArray(accounts) ? accounts : [];
+  const selectedAcc = safeAccounts.find((a) => a?.id === selectedAccount);
 
   const handleSave = useCallback(async () => {
     setError(null);
     const amt = parseFloat(amount);
-    if (!amt || amt <= 0) {
+    if (isNaN(amt) || amt <= 0) {
       setError('Please enter a valid amount');
       return;
     }
@@ -104,40 +128,50 @@ export function LogExpenseScreen({ navigation, route }: LogExpenseScreenProps) {
       setError('Please select a main budget category');
       return;
     }
+
     setSaving(true);
-    if (isEditing) {
-      const { error: updateError } = await supabase
-        .from('expense_logs')
-        .update({
+    try {
+      if (isEditing && editId) {
+        const { error: updateError } = await supabase
+          .from('expense_logs')
+          .update({
+            account_id: selectedAccount,
+            amount: amt,
+            date,
+            subcategory,
+            main_category: mainCategory,
+            comment: comment.trim() || null,
+          })
+          .eq('id', editId);
+
+        if (updateError) {
+          setError('Failed to update expense. Please try again.');
+          setSaving(false);
+          return;
+        }
+      } else {
+        const { error: insertError } = await supabase.from('expense_logs').insert({
           account_id: selectedAccount,
           amount: amt,
           date,
           subcategory,
           main_category: mainCategory,
           comment: comment.trim() || null,
-        })
-        .eq('id', editId);
-      setSaving(false);
-      if (updateError) {
-        setError('Failed to update expense. Please try again.');
-        return;
+        });
+
+        if (insertError) {
+          setError('Failed to save expense. Please try again.');
+          setSaving(false);
+          return;
+        }
       }
-    } else {
-      const { error: insertError } = await supabase.from('expense_logs').insert({
-        account_id: selectedAccount,
-        amount: amt,
-        date,
-        subcategory,
-        main_category: mainCategory,
-        comment: comment.trim() || null,
-      });
       setSaving(false);
-      if (insertError) {
-        setError('Failed to save expense. Please try again.');
-        return;
-      }
+      navigation.goBack();
+    } catch (err) {
+      console.error('Unexpected error saving expense:', err);
+      setError('An unexpected error occurred. Please try again.');
+      setSaving(false);
     }
-    navigation.goBack();
   }, [amount, selectedAccount, date, subcategory, mainCategory, comment, navigation, isEditing, editId]);
 
   return (
@@ -174,7 +208,7 @@ export function LogExpenseScreen({ navigation, route }: LogExpenseScreenProps) {
             />
             {selectedAcc && (
               <Text style={styles.balanceHint}>
-                Current balance: {formatCurrency(Number(selectedAcc.balance), currency)}
+                Current balance: {formatCurrency(Number(selectedAcc.balance ?? 0), currency)}
               </Text>
             )}
             <TextField
@@ -193,7 +227,7 @@ export function LogExpenseScreen({ navigation, route }: LogExpenseScreenProps) {
             />
             <SelectField
               label="Main Budget Category"
-              value={mainCategory ? MAIN_CATEGORY_LABELS[mainCategory as MainCategory] : ''}
+              value={mainCategory ? (MAIN_CATEGORY_LABELS[mainCategory as MainCategory] ?? mainCategory) : ''}
               onPress={() => setShowMainCats(true)}
               placeholder="Map to main category"
             />
@@ -202,15 +236,15 @@ export function LogExpenseScreen({ navigation, route }: LogExpenseScreenProps) {
               <View style={styles.categoryPreview}>
                 {subcategory && (
                   <View style={styles.previewChip}>
-                    <Text style={styles.previewIcon}>{SubcategoryIcons[subcategory as Subcategory]}</Text>
+                    <Text style={styles.previewIcon}>{(SubcategoryIcons as any)[subcategory as Subcategory] ?? '🏷️'}</Text>
                     <Text style={styles.previewText}>{subcategory}</Text>
                   </View>
                 )}
                 {subcategory && mainCategory && <Text style={styles.previewArrow}>→</Text>}
                 {mainCategory && (
-                  <View style={[styles.previewChip, { backgroundColor: CategoryColors[mainCategory as MainCategory] + '22' }]}>
-                    <Text style={styles.previewIcon}>{MainCategoryIcons[mainCategory as MainCategory]}</Text>
-                    <Text style={styles.previewText}>{MAIN_CATEGORY_LABELS[mainCategory as MainCategory]}</Text>
+                  <View style={[styles.previewChip, { backgroundColor: (CategoryColors[mainCategory as MainCategory] ?? Colors.primary) + '22' }]}>
+                    <Text style={styles.previewIcon}>{MainCategoryIcons[mainCategory as MainCategory] ?? '📁'}</Text>
+                    <Text style={styles.previewText}>{MAIN_CATEGORY_LABELS[mainCategory as MainCategory] ?? mainCategory}</Text>
                   </View>
                 )}
               </View>
@@ -237,7 +271,7 @@ export function LogExpenseScreen({ navigation, route }: LogExpenseScreenProps) {
       <BottomSheet visible={showAccounts} onClose={() => setShowAccounts(false)} title="Select Source Account">
         <ScrollView>
           <OptionList
-            options={accounts.map((a) => ({ label: a.name, value: a.id }))}
+            options={safeAccounts.map((a) => ({ label: a?.name ?? 'Unnamed Account', value: a?.id ?? '' }))}
             onSelect={(v) => { setSelectedAccount(v); setShowAccounts(false); }}
             selected={selectedAccount}
           />
@@ -247,7 +281,7 @@ export function LogExpenseScreen({ navigation, route }: LogExpenseScreenProps) {
       <BottomSheet visible={showSubcats} onClose={() => setShowSubcats(false)} title="Select Subcategory">
         <ScrollView>
           <OptionList
-            options={SUBCATEGORIES.map((s) => ({ label: s, value: s, icon: SubcategoryIcons[s] }))}
+            options={(SUBCATEGORIES ?? []).map((s) => ({ label: s, value: s, icon: (SubcategoryIcons as any)[s] ?? '🏷️' }))}
             onSelect={(v) => { setSubcategory(v); setShowSubcats(false); }}
             selected={subcategory}
           />
@@ -257,11 +291,11 @@ export function LogExpenseScreen({ navigation, route }: LogExpenseScreenProps) {
       <BottomSheet visible={showMainCats} onClose={() => setShowMainCats(false)} title="Select Main Budget Category">
         <ScrollView>
           <OptionList
-            options={MAIN_CATEGORIES.map((c) => ({
-              label: MAIN_CATEGORY_LABELS[c],
+            options={(MAIN_CATEGORIES ?? []).map((c) => ({
+              label: MAIN_CATEGORY_LABELS[c] ?? c,
               value: c,
-              icon: MainCategoryIcons[c],
-              color: CategoryColors[c],
+              icon: MainCategoryIcons[c] ?? '📁',
+              color: CategoryColors[c] ?? Colors.primary,
             }))}
             onSelect={(v) => { setMainCategory(v); setShowMainCats(false); }}
             selected={mainCategory}
